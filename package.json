@@ -48,10 +48,20 @@
   },
   "packageManager": "yarn@3.2.3",
   "devDependencies": {
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
     "husky": "^9.1.6",
     "lint-staged": "^15.2.10"
   },
   "engines": {
     "node": ">=18.18.0"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.62.10",
+    "eth-hooks": "^4.6.2",
+    "ether": "^0.0.9",
+    "ethers": "^6.13.4",
+    "viem": "^2.21.57",
+    "wagmi": "^2.14.6"
   }
 }

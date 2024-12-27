@@ -1,78 +1,113 @@
-//SPDX-License-Identifier: MIT
-pragma solidity >=0.8.0 <0.9.0;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
 
-// Useful for debugging. Remove when deploying to a live network.
-import "hardhat/console.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-// Use openzeppelin to inherit battle-tested implementations (ERC20, ERC721, etc)
-// import "@openzeppelin/contracts/access/Ownable.sol";
-
-/**
- * A smart contract that allows changing a state variable of the contract and tracking the changes
- * It also allows the owner to withdraw the Ether in the contract
- * @author BuidlGuidl
- */
-contract YourContract {
-    // State Variables
-    address public immutable owner;
-    string public greeting = "Building Unstoppable Apps!!!";
-    bool public premium = false;
-    uint256 public totalCounter = 0;
-    mapping(address => uint) public userGreetingCounter;
-
-    // Events: a way to emit log statements from smart contract that can be listened to by external parties
-    event GreetingChange(address indexed greetingSetter, string newGreeting, bool premium, uint256 value);
-
-    // Constructor: Called once on contract deployment
-    // Check packages/hardhat/deploy/00_deploy_your_contract.ts
-    constructor(address _owner) {
-        owner = _owner;
+contract HotelBooking is Ownable, ReentrancyGuard {
+    error RoomNotExists();
+    error RoomNotAvailable();
+    error InvalidPayment();
+    error InvalidDays();
+    
+    enum RoomLevel { NORMAL, GOLD, PLATINUM, DIAMOND }
+    
+    enum RoomStatus { AVAILABLE, BOOKED }
+    
+    struct Room {
+        uint256 price;
+        RoomLevel level; 
+        RoomStatus status;
+        string name;
+        string description;
     }
-
-    // Modifier: used to define a set of rules that must be met before or after a function is executed
-    // Check the withdraw() function
-    modifier isOwner() {
-        // msg.sender: predefined variable that represents address of the account that called the current function
-        require(msg.sender == owner, "Not the Owner");
-        _;
+    
+    Room[] public rooms;
+    
+    event RoomCreated(uint256 indexed roomId, string name, uint256 price, RoomLevel level);
+    event RoomBooked(uint256 indexed roomId, address indexed booker, uint256 numDays);
+    event CreateRoomAttempt(
+        address indexed creator,
+        string name,
+        string description,
+        uint256 price,
+        RoomLevel level
+    );
+    
+    constructor() Ownable(msg.sender) {}
+    
+    function createRoom(
+        string memory _name,
+        string memory _description,
+        uint256 _price,
+        RoomLevel _level
+    ) external onlyOwner {
+        emit CreateRoomAttempt(msg.sender, _name, _description, _price, _level);
+        
+        require(bytes(_name).length > 0, "Name cannot be empty");
+        require(bytes(_description).length > 0, "Description cannot be empty");
+        require(_price > 0, "Price must be greater than 0");
+        
+        require(owner() == msg.sender, "Caller is not the owner");
+        
+        rooms.push(Room({
+            price: _price,
+            level: _level,
+            status: RoomStatus.AVAILABLE,
+            name: _name,
+            description: _description
+        }));
+        
+        emit RoomCreated(rooms.length - 1, _name, _price, _level);
     }
-
-    /**
-     * Function that allows anyone to change the state variable "greeting" of the contract and increase the counters
-     *
-     * @param _newGreeting (string memory) - new greeting to save on the contract
-     */
-    function setGreeting(string memory _newGreeting) public payable {
-        // Print data to the hardhat chain console. Remove when deploying to a live network.
-        console.log("Setting new greeting '%s' from %s", _newGreeting, msg.sender);
-
-        // Change state variables
-        greeting = _newGreeting;
-        totalCounter += 1;
-        userGreetingCounter[msg.sender] += 1;
-
-        // msg.value: built-in global variable that represents the amount of ether sent with the transaction
-        if (msg.value > 0) {
-            premium = true;
-        } else {
-            premium = false;
+    
+    function bookRoom(uint256 _roomId, uint256 _numDays) external payable nonReentrant {
+        if(_roomId >= rooms.length) revert RoomNotExists();
+        if(_numDays == 0) revert InvalidDays();
+        
+        Room storage room = rooms[_roomId];
+        if(room.status != RoomStatus.AVAILABLE) revert RoomNotAvailable();
+        
+        uint256 totalPrice = room.price * _numDays;
+        if(msg.value < totalPrice) revert InvalidPayment();
+        
+        room.status = RoomStatus.BOOKED;
+        
+        if(msg.value > totalPrice) {
+            payable(msg.sender).transfer(msg.value - totalPrice);
         }
-
-        // emit: keyword used to trigger an event
-        emit GreetingChange(msg.sender, _newGreeting, msg.value > 0, msg.value);
+        
+        emit RoomBooked(_roomId, msg.sender, _numDays);
+    }
+    
+    function getAvailableRooms() external view returns (uint256[] memory) {
+        uint256 count = 0;
+        
+        for(uint256 i = 0; i < rooms.length; i++) {
+            if(rooms[i].status == RoomStatus.AVAILABLE) {
+                count++;
+            }
+        }
+        
+        uint256[] memory availableRooms = new uint256[](count);
+        uint256 index = 0;
+        
+        for(uint256 i = 0; i < rooms.length; i++) {
+            if(rooms[i].status == RoomStatus.AVAILABLE) {
+                availableRooms[index] = i;
+                index++;
+            }
+        }
+        
+        return availableRooms;
     }
 
-    /**
-     * Function that allows the owner to withdraw all the Ether in the contract
-     * The function can only be called by the owner of the contract as defined by the isOwner modifier
-     */
-    function withdraw() public isOwner {
-        (bool success, ) = owner.call{ value: address(this).balance }("");
-        require(success, "Failed to send Ether");
+    function getRoom(uint256 _roomId) external view returns (Room memory) {
+        if(_roomId >= rooms.length) revert RoomNotExists();
+        return rooms[_roomId];
     }
 
-    /**
-     * Function that allows the contract to receive ETH
-     */
-    receive() external payable {}
-}
+    function getRoomCount() external view returns (uint256) {
+        return rooms.length;
+    }
+} 
